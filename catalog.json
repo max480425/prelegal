@@ -1,0 +1,57 @@
+﻿[
+    {
+        "description":  "Addendum for AI Services",
+        "name":  "AI-Addendum",
+        "filename":  "AI-Addendum.md"
+    },
+    {
+        "description":  "Business Associate Agreement",
+        "name":  "Business-Associate-Agreement",
+        "filename":  "Business-Associate-Agreement.md"
+    },
+    {
+        "description":  "Cloud Services Agreement",
+        "name":  "Cloud-Services-Agreement",
+        "filename":  "Cloud-Services-Agreement.md"
+    },
+    {
+        "description":  "Design Partner Agreement",
+        "name":  "Design-Partner-Agreement",
+        "filename":  "Design-Partner-Agreement.md"
+    },
+    {
+        "description":  "Data Processing Agreement",
+        "name":  "Data-Processing-Agreement",
+        "filename":  "Data-Processing-Agreement.md"
+    },
+    {
+        "description":  "Mutual Non-Disclosure Agreement",
+        "name":  "Mutual-NDA",
+        "filename":  "Mutual-NDA.md"
+    },
+    {
+        "description":  "Partnership Agreement",
+        "name":  "Partnership-Agreement",
+        "filename":  "Partnership-Agreement.md"
+    },
+    {
+        "description":  "Pilot Agreement",
+        "name":  "Pilot-Agreement",
+        "filename":  "Pilot-Agreement.md"
+    },
+    {
+        "description":  "Professional Services Agreement",
+        "name":  "Professional-Services-Agreement",
+        "filename":  "Professional-Services-Agreement.md"
+    },
+    {
+        "description":  "Service Level Agreement",
+        "name":  "Service-Level-Agreement",
+        "filename":  "Service-Level-Agreement.md"
+    },
+    {
+        "description":  "Software License Agreement",
+        "name":  "Software-License-Agreement",
+        "filename":  "Software-License-Agreement.md"
+    }
+]
