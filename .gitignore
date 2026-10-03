@@ -107,8 +107,11 @@ dist/
 # Docker
 docker-compose.override.yml
 
+# Generated documents
+generated_documents/
+/backend/generated_documents/
+
 # Miscellaneous
 *.bak
 *.tmp
 *.temp
-.env.example
