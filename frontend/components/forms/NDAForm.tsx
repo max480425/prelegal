@@ -16,6 +16,18 @@ export function NDAForm({ template }: NDAFormProps) {
   const { downloadPDF } = useDownload();
   const [downloadSuccess, setDownloadSuccess] = useState(false);
   const [previewVisible, setPreviewVisible] = useState(true);
+  const watchValues = form.watch();
+
+  // Map form keys to the template's coverpage_link field names (same
+  // mapping used on submit) so the preview substitutes correctly.
+  const previewValues: Record<string, string | undefined> = {
+    Purpose: watchValues.purpose,
+    'Effective Date': watchValues.effectiveDate,
+    'MNDA Term': watchValues.mndaTerm,
+    'Term of Confidentiality': watchValues.termOfConfidentiality,
+    'Governing Law': watchValues.governingLaw,
+    Jurisdiction: watchValues.jurisdiction,
+  };
 
   const onSubmit = async (values: any) => {
     try {
@@ -174,7 +186,7 @@ export function NDAForm({ template }: NDAFormProps) {
       {previewVisible && (
         <div className="bg-white rounded-lg shadow p-6">
           <h2 className="text-2xl font-bold mb-4">Preview</h2>
-          <NDAPreview values={form.watch()} template={template} />
+          <NDAPreview values={previewValues} template={template} />
         </div>
       )}
     </div>

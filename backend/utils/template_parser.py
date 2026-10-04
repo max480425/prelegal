@@ -102,18 +102,21 @@ class TemplateParser:
         
         for field in extracted_fields:
             if field in field_values:
-                value = field_values[field]
-                pattern = f'<span class="coverpage_link">{re.escape(field)}</span>'
-                result = re.sub(pattern, value, result)
+                # Plain string replacement: field values are user text, not
+                # regex replacements (backslashes in values must survive).
+                span = f'<span class="coverpage_link">{field}</span>'
+                result = result.replace(span, field_values[field])
         
         return result
     
     @staticmethod
     def validate_fields(template_content: str, field_values: Dict[str, str]) -> Tuple[bool, List[str]]:
         """Validate that all required fields are provided."""
-        extracted_fields = TemplateParser.extract_fields(template_content)
+        # dict.fromkeys deduplicates while preserving template order —
+        # fields like "Governing Law" appear multiple times in one template.
+        extracted_fields = list(dict.fromkeys(TemplateParser.extract_fields(template_content)))
         missing_fields = []
-        
+
         for field in extracted_fields:
             if field not in field_values or not str(field_values[field]).strip():
                 missing_fields.append(field)

@@ -72,10 +72,14 @@ async def generate_document(request: DocumentGenerateRequest):
     
     except ValueError as e:
         error_msg = str(e)
+
+        if "Template not found" in error_msg:
+            raise HTTPException(status_code=404, detail=error_msg)
+
         missing_fields = None
         if "Missing required fields" in error_msg:
             missing_fields = error_msg.split(": ")[1].split(", ") if ": " in error_msg else []
-        
+
         raise HTTPException(
             status_code=400,
             detail={

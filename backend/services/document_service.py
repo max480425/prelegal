@@ -21,8 +21,10 @@ class DocumentService:
             catalog_path = Path(__file__).parent.parent.parent / "catalog.json"
             if not catalog_path.exists():
                 return []
-            
-            with open(catalog_path, 'r') as f:
+
+            # utf-8-sig: catalog.json is saved with a UTF-8 BOM, which plain
+            # json.load rejects with "Expecting value: line 1 column 1".
+            with open(catalog_path, 'r', encoding='utf-8-sig') as f:
                 catalog = json.load(f)
             return catalog
         except Exception:
@@ -88,9 +90,10 @@ class DocumentService:
         substituted = TemplateParser.substitute_fields(content, fields)
         
         # Generate PDF
+        # doc_id is the file stem so the download lookup can match it exactly.
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        doc_id = f"{template_name.lower().replace(' ', '_')}_{timestamp}"
         filename = f"{template_name.replace(' ', '-')}-{timestamp}.pdf"
+        doc_id = Path(filename).stem
         
         pdf_path = PDFGenerator.generate_pdf(substituted, filename, self.documents_dir)
         

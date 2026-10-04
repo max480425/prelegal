@@ -23,7 +23,7 @@ def test_health():
     print("TEST: Health Check")
     print("="*70)
 
-    response = requests.get("http://localhost:8000/health")
+    response = requests.get(f"{BASE_URL}/health")
     print(f"Status: {response.status_code}")
     print(f"Response: {json.dumps(response.json(), indent=2)}")
 
@@ -60,20 +60,22 @@ def test_get_template_schema():
     print(f"Status: {response.status_code}")
 
     schema = response.json()
+    # fields is a dict: {field_name: {type, label, required, description, ...}}
+    fields = schema['fields']
     print(f"\nTemplate: {schema['name']}")
-    print(f"Description: {schema['description']}")
-    print(f"\nFields ({len(schema['fields'])} total):")
+    print(f"Filename: {schema['filename']}")
+    print(f"\nFields ({len(fields)} total):")
 
-    for field in schema['fields']:
-        required = "required" if field['required'] else "optional"
-        field_type = field['type']
-        print(f"  - {field['name']} ({field_type}, {required})")
-        if field.get('description'):
-            print(f"    {field['description']}")
+    for name, meta in fields.items():
+        required = "required" if meta.get('required') else "optional"
+        field_type = meta.get('type', 'text')
+        print(f"  - {name} ({field_type}, {required})")
+        if meta.get('description'):
+            print(f"    {meta['description']}")
 
     assert response.status_code == 200
     assert schema['name'] == 'Mutual-NDA'
-    assert len(schema['fields']) > 0
+    assert len(fields) > 0
     print("\n✅ PASS")
 
 
@@ -84,7 +86,7 @@ def test_generate_document():
     print("="*70)
 
     payload = {
-        "template": "Mutual-NDA",
+        "template_name": "Mutual-NDA",
         "fields": {
             "Purpose": "Evaluation of potential partnership and collaboration opportunities",
             "Effective Date": "2024-01-15",
@@ -165,10 +167,10 @@ def test_get_api_info():
     info = response.json()
     print(f"Name: {info['name']}")
     print(f"Version: {info['version']}")
-    print(f"Template Count: {info['template_count']}")
+    print(f"Description: {info['description']}")
 
     assert response.status_code == 200
-    assert info['name'] == 'NDA Creator API'
+    assert info['name'] == 'Prelegal NDA Generator API'
     print("✅ PASS")
 
 
@@ -188,7 +190,7 @@ def test_error_cases():
     # Test 2: Missing required field
     print("\n2. Missing required fields:")
     payload = {
-        "template": "Mutual-NDA",
+        "template_name": "Mutual-NDA",
         "fields": {
             "Purpose": "Test"
             # Missing other required fields
@@ -205,7 +207,7 @@ def test_error_cases():
     # Test 3: Invalid template name in generate
     print("\n3. Invalid template in generation:")
     payload = {
-        "template": "InvalidTemplate",
+        "template_name": "InvalidTemplate",
         "fields": {"Purpose": "Test"}
     }
     response = requests.post(f"{BASE_URL}/documents/generate", json=payload)

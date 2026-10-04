@@ -1,10 +1,11 @@
 'use client';
 
-import { NDAFormValues } from '@/lib/validation';
 import React from 'react';
 
 interface NDAPreviewProps {
-  values: Partial<NDAFormValues>;
+  // Keys must match the template's coverpage_link field names
+  // (e.g. "Purpose", "Effective Date"), not the form's camelCase keys.
+  values: Record<string, string | undefined>;
   template: string;
 }
 
