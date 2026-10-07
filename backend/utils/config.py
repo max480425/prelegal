@@ -1,10 +1,21 @@
 from pydantic_settings import BaseSettings
 from functools import lru_cache
 from pathlib import Path
+import secrets
 
 # Repository root (prelegal/), anchored to this file so paths never depend
 # on the process working directory.
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
+
+
+def _resolve(raw: str, base: Path, mkdir: bool = False) -> Path:
+    """Resolve a possibly-relative path against the repo root."""
+    path = Path(raw)
+    if not path.is_absolute():
+        path = base / path
+    if mkdir:
+        path.mkdir(parents=True, exist_ok=True)
+    return path
 
 
 class Settings(BaseSettings):
@@ -15,30 +26,45 @@ class Settings(BaseSettings):
     ALLOWED_ORIGINS: str = "http://localhost:3000,http://localhost:8000"
     DOCUMENTS_DIR: str = "generated_documents"
     TEMPLATES_DIR: str = "templates"
+    FRONTEND_DIR: str = "frontend/out"
+    DATABASE_PATH: str = "prelegal.db"
+    # Empty => a random secret is generated at startup (see model_post_init),
+    # so a known default can never be used to forge session tokens.
+    JWT_SECRET: str = ""
+    JWT_EXPIRE_MINUTES: int = 1440
     LOG_LEVEL: str = "INFO"
-    
+
     class Config:
-        env_file = ".env"
+        # Anchor .env to the repo root (not CWD) and ignore unrelated keys
+        # such as OPENROUTER_API_KEY, which lives in the same file.
+        env_file = str(BASE_DIR / ".env")
         case_sensitive = True
-    
+        extra = "ignore"
+
+    def model_post_init(self, __context) -> None:
+        if not self.JWT_SECRET:
+            self.JWT_SECRET = secrets.token_hex(32)
+
     @property
     def allowed_origins_list(self) -> list:
         return [origin.strip() for origin in self.ALLOWED_ORIGINS.split(",")]
-    
+
     @property
     def documents_path(self) -> Path:
-        path = Path(self.DOCUMENTS_DIR)
-        if not path.is_absolute():
-            path = BASE_DIR / path
-        path.mkdir(parents=True, exist_ok=True)
-        return path
+        return _resolve(self.DOCUMENTS_DIR, BASE_DIR, mkdir=True)
 
     @property
     def templates_path(self) -> Path:
-        path = Path(self.TEMPLATES_DIR)
-        if not path.is_absolute():
-            path = BASE_DIR / path
-        return path
+        return _resolve(self.TEMPLATES_DIR, BASE_DIR)
+
+    @property
+    def frontend_path(self) -> Path:
+        """Path to the statically exported frontend (may not exist in dev)."""
+        return _resolve(self.FRONTEND_DIR, BASE_DIR)
+
+    @property
+    def database_path(self) -> Path:
+        return _resolve(self.DATABASE_PATH, BASE_DIR)
 
 
 @lru_cache

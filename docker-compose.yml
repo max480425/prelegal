@@ -1,0 +1,7 @@
+services:
+  prelegal:
+    build: .
+    image: prelegal:latest
+    container_name: prelegal
+    ports:
+      - "8000:8000"
