@@ -1,4 +1,4 @@
-import { DocumentResponse, ApiError, AuthResponse, AuthUser } from './types';
+import { DocumentResponse, ApiError, AuthResponse, AuthUser, ChatMessage, ChatTurnResponse } from './types';
 
 // Empty string => same-origin relative URLs. When the static export is served
 // by FastAPI at localhost:8000 the API is on the same origin, so cookies flow
@@ -100,6 +100,23 @@ export class NDAApiClient {
 
   async getTemplateSchema(templateName: string) {
     return this.request(`/api/templates/${templateName}/schema`);
+  }
+
+  // ---- Chat ----
+
+  async getChatGreeting(): Promise<ChatTurnResponse> {
+    return this.request<ChatTurnResponse>('/api/chat/greeting');
+  }
+
+  async sendChatMessage(
+    messages: ChatMessage[],
+    fields: Record<string, string>,
+  ): Promise<ChatTurnResponse> {
+    return this.request<ChatTurnResponse>('/api/chat/message', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages, fields }),
+    });
   }
 
   // ---- Auth ----

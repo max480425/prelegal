@@ -35,3 +35,16 @@ export interface AuthResponse {
   message: string;
   user: AuthUser;
 }
+
+export interface ChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+// Same shape for GET /api/chat/greeting and POST /api/chat/message.
+// `fields` keys are the exact template field names; "" = not yet known.
+export interface ChatTurnResponse {
+  reply: string;
+  fields: Record<string, string>;
+  complete: boolean;
+}

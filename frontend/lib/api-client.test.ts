@@ -80,3 +80,58 @@ describe('NDAApiClient', () => {
     });
   });
 });
+
+describe('NDAApiClient chat', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('getChatGreeting issues a GET with credentials included', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({ reply: 'Hi!', fields: {}, complete: false }),
+    } as Response);
+
+    const result = await apiClient.getChatGreeting();
+
+    expect(result.reply).toBe('Hi!');
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/chat/greeting',
+      expect.objectContaining({ credentials: 'include' }),
+    );
+  });
+
+  it('sendChatMessage POSTs messages and fields as JSON', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({ reply: 'Got it', fields: { Purpose: 'x' }, complete: false }),
+    } as Response);
+
+    const messages = [
+      { role: 'user' as const, content: 'We are evaluating a partnership.' },
+    ];
+    const result = await apiClient.sendChatMessage(messages, { Purpose: 'known' });
+
+    expect(result.fields).toEqual({ Purpose: 'x' });
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/chat/message',
+      expect.objectContaining({
+        method: 'POST',
+        credentials: 'include',
+        body: JSON.stringify({ messages, fields: { Purpose: 'known' } }),
+      }),
+    );
+  });
+
+  it('sendChatMessage surfaces a 503 detail as ApiError.error', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: false,
+      status: 503,
+      json: async () => ({ detail: 'AI chat is not configured' }),
+    } as Response);
+
+    await expect(
+      apiClient.sendChatMessage([{ role: 'user', content: 'hi' }], {}),
+    ).rejects.toEqual({ error: 'AI chat is not configured' });
+  });
+});
