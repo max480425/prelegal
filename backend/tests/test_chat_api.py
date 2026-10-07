@@ -9,25 +9,19 @@ import asyncio
 
 import pytest
 
+from backend.api import chat_routes
 from backend.api.chat_routes import chat_service
 from backend.services import chat_prompts
 from backend.services.chat_service import (
     ChatConfigError,
     ChatOutputError,
     ChatUpstreamError,
+    coerce_field,
     parse_llm_content,
 )
+from backend.tests.conftest import NDA_FIELDS
 from backend.utils.config import get_settings
 from backend.utils.template_parser import TemplateParser
-
-NDA_FIELDS = {
-    "Purpose": "Evaluation of potential partnership and collaboration opportunities",
-    "Effective Date": "2024-01-15",
-    "MNDA Term": "2 years",
-    "Term of Confidentiality": "3 years from the date of disclosure",
-    "Governing Law": "California",
-    "Jurisdiction": "Northern District of California",
-}
 
 
 def _patch_llm(monkeypatch, payload=None, error=None):
@@ -38,14 +32,16 @@ def _patch_llm(monkeypatch, payload=None, error=None):
         calls.append(messages)
         if error is not None:
             raise error
-        return payload if payload is not None else _payload({}, False)
+        return payload if payload is not None else _payload({})
 
     monkeypatch.setattr(chat_service, "_call_llm", fake)
     return calls
 
 
-def _payload(fields, complete=False, reply="Got it — and when should the agreement take effect?"):
-    return {"reply": reply, "fields": fields, "complete": complete}
+def _payload(fields, reply="Got it — and when should the agreement take effect?"):
+    # Mirrors the real structured-output contract: reply + fields only
+    # (the server computes `complete` itself).
+    return {"reply": reply, "fields": fields}
 
 
 def _post(client, text="We are evaluating a partnership.", fields=None):
@@ -132,10 +128,61 @@ class TestMessage:
             assert name in messages[0]["content"]
         assert {"role": "user", "content": "We are evaluating a partnership."} in messages
 
+    def test_known_fields_are_injected_into_the_prompt(self, client, monkeypatch):
+        calls = _patch_llm(monkeypatch, _payload({}))
+        _post(client, fields={"Purpose": "Partnership evaluation"})
+        system = calls[0][0]["content"]
+        assert "Known fields so far" in system
+        assert "Purpose: Partnership evaluation" in system
+
+    def test_long_model_values_are_capped(self, client, monkeypatch):
+        _patch_llm(monkeypatch, _payload({"Purpose": "x" * 1500}))
+        body = _post(client).json()
+        assert len(body["fields"]["Purpose"]) == 1000
+
     def test_message_works_without_auth(self, client, monkeypatch):
         # The client fixture is signed out — chat is public by design.
         _patch_llm(monkeypatch, _payload({}))
         assert _post(client).status_code == 200
+
+
+class TestCoercion:
+    """Values the prompt only *advises* are enforced server-side (M3)."""
+
+    @pytest.mark.parametrize(
+        "raw,expected",
+        [
+            ("France", "Other"),
+            ("california", "California"),
+            ("NEW YORK", "New York"),
+            ("Texas", "Texas"),
+            ("", ""),
+        ],
+    )
+    def test_governing_law_enforces_options(self, raw, expected):
+        assert coerce_field("Governing Law", raw) == expected
+
+    @pytest.mark.parametrize(
+        "raw,expected",
+        [
+            ("2026-10-07", "2026-10-07"),   # ISO passes through
+            ("May 1, 2026", "2026-05-01"),  # parseable → ISO
+            ("ASAP", ""),                   # unparseable → must re-ask
+            ("", ""),
+        ],
+    )
+    def test_effective_date_normalization(self, raw, expected):
+        assert coerce_field("Effective Date", raw) == expected
+
+    def test_garbage_model_date_does_not_blank_known_value(self, client, monkeypatch):
+        _patch_llm(monkeypatch, _payload({"Effective Date": "ASAP"}))
+        body = _post(client, fields={"Effective Date": "2024-01-15"}).json()
+        assert body["fields"]["Effective Date"] == "2024-01-15"
+
+    def test_garbage_model_date_without_known_value_stays_empty(self, client, monkeypatch):
+        _patch_llm(monkeypatch, _payload({"Effective Date": "ASAP"}))
+        body = _post(client).json()
+        assert body["fields"]["Effective Date"] == ""
 
 
 class TestValidation:
@@ -156,6 +203,40 @@ class TestValidation:
             json={"messages": [{"role": "user", "content": ""}]},
         )
         assert response.status_code == 422
+
+    def test_history_count_capped_at_40(self, client):
+        messages = [{"role": "user", "content": "x"} for _ in range(41)]
+        response = client.post("/api/chat/message", json={"messages": messages})
+        assert response.status_code == 422
+
+    def test_history_character_budget_enforced(self, client):
+        # 5 × 8000 chars = 40k > the 32k per-request budget (422 before the LLM).
+        messages = [{"role": "user", "content": "x" * 8000} for _ in range(5)]
+        response = client.post("/api/chat/message", json={"messages": messages})
+        assert response.status_code == 422
+
+
+class TestRateLimit:
+    def test_rate_limit_returns_429(self, client, monkeypatch):
+        _patch_llm(monkeypatch, _payload({}))
+        monkeypatch.setattr(chat_service.settings, "CHAT_RATE_LIMIT", 2)
+        chat_routes._rate_buckets.clear()
+        try:
+            assert _post(client).status_code == 200
+            assert _post(client).status_code == 200
+            assert _post(client).status_code == 429
+        finally:
+            chat_routes._rate_buckets.clear()
+
+    def test_zero_limit_disables_the_limiter(self, client, monkeypatch):
+        _patch_llm(monkeypatch, _payload({}))
+        assert get_settings().CHAT_RATE_LIMIT == 0  # set by conftest
+        chat_routes._rate_buckets.clear()
+        try:
+            for _ in range(5):
+                assert _post(client).status_code == 200
+        finally:
+            chat_routes._rate_buckets.clear()
 
 
 class TestErrors:
@@ -206,6 +287,31 @@ class TestErrors:
         monkeypatch.setattr(litellm, "completion", fake_completion)
         with pytest.raises(ChatConfigError):
             asyncio.run(chat_service._call_llm([{"role": "user", "content": "hi"}]))
+
+    def test_empty_choices_is_an_output_error(self, monkeypatch):
+        # Provider refusal → choices: [] must be a retriable 502, not a 500.
+        import litellm
+
+        class Refused:
+            choices = []
+
+        monkeypatch.setattr(litellm, "completion", lambda **kwargs: Refused())
+        with pytest.raises(ChatOutputError):
+            asyncio.run(chat_service._call_llm([{"role": "user", "content": "hi"}]))
+
+    def test_upstream_failures_do_not_leak_details(self, monkeypatch):
+        # Raw provider bodies stay in the server log; the client sees a
+        # generic message.
+        import litellm
+
+        def explode(**kwargs):
+            raise RuntimeError("https://internal.example/secret-body")
+
+        monkeypatch.setattr(litellm, "completion", explode)
+        with pytest.raises(ChatUpstreamError) as exc_info:
+            asyncio.run(chat_service._call_llm([{"role": "user", "content": "hi"}]))
+        assert "secret-body" not in str(exc_info.value)
+        assert "could not complete" in str(exc_info.value)
 
 
 class TestDriftGuards:

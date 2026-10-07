@@ -6,21 +6,33 @@ All LLM concerns live behind two test seams:
   - `parse_llm_content` (pure function) — unit-tested directly.
 
 Statelessness: the client sends full history + its accumulated fields each
-turn; the model returns deltas; the server merges and computes `complete`
-from the actual template via TemplateParser.validate_fields, so the model
-can never gate the download or blank a known value.
+turn; the model returns deltas; the server coerces and merges them and
+computes `complete` from the actual template via TemplateParser.validate_fields,
+so the model can never gate the download, blank a known value, or push
+invalid data (bad dates, non-option governing law) into the document.
 """
 
 import asyncio
 import json
+import logging
+import re
+from typing import Dict
 
 import litellm
+from dateutil import parser as date_parser
 
 from backend.services import chat_prompts
 from backend.utils.config import get_settings
-from backend.utils.template_parser import TemplateParser
+from backend.utils.template_parser import TemplateParser, FieldType
+
+logger = logging.getLogger(__name__)
 
 MODEL = "openrouter/openai/gpt-oss-120b"
+# Per-field cap on merged values: bounds prompt/output size so the strict
+# schema re-emission always fits the token budget (prevents a truncation
+# loop where a huge value makes every turn fail with invalid JSON).
+MAX_FIELD_CHARS = 1000
+_ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
 class ChatError(Exception):
@@ -28,11 +40,11 @@ class ChatError(Exception):
 
 
 class ChatConfigError(ChatError):
-    """The chat feature is not configured (missing OPENROUTER_API_KEY)."""
+    """The chat feature is not configured (missing/rejected OPENROUTER_API_KEY)."""
 
 
 class ChatUpstreamError(ChatError):
-    """The LLM provider failed (transport, auth, rate limit, timeout)."""
+    """The LLM provider failed (transport, rate limit, timeout)."""
 
 
 class ChatOutputError(ChatError):
@@ -62,6 +74,45 @@ def parse_llm_content(content) -> dict:
     return data
 
 
+def coerce_field(name: str, value) -> str:
+    """Normalize one field value: strip, cap length, and enforce the rules
+    the prompt only advises (so garbage never reaches the PDF).
+
+    - Governing Law: any non-option value (e.g. 'France') → 'Other'.
+    - Effective Date: ISO kept as-is; other parseable dates → YYYY-MM-DD;
+      unparseable values → '' (the AI must ask again).
+    """
+    text = str(value or "").strip()[:MAX_FIELD_CHARS]
+    if not text:
+        return ""
+
+    spec = TemplateParser.PREDEFINED_FIELDS.get(name, {})
+    if name == "Governing Law":
+        options = spec.get("options") or []
+        if text not in options:
+            match = next((o for o in options if o.lower() == text.lower()), None)
+            return match or "Other"
+        return text
+
+    if spec.get("type") == FieldType.DATE and not _ISO_DATE.match(text):
+        try:
+            parsed = date_parser.parse(text)
+        except (ValueError, OverflowError, TypeError):
+            return ""
+        if parsed is None or not (2020 <= parsed.year <= 2099):
+            return ""
+        return parsed.strftime("%Y-%m-%d")
+    return text
+
+
+def coerce_fields(raw: Dict) -> Dict[str, str]:
+    """Coerce a fields dict down to exactly the template's field names."""
+    return {
+        name: coerce_field(name, (raw or {}).get(name))
+        for name in chat_prompts.required_field_names()
+    }
+
+
 class ChatService:
     """Conversation turn handling for the Mutual NDA chat."""
 
@@ -82,8 +133,9 @@ class ChatService:
         `history` is the full client-side conversation as plain dicts;
         `client_fields` is the client's accumulated field values.
         """
+        known = coerce_fields(client_fields)
         messages = [
-            {"role": "system", "content": chat_prompts.build_system_prompt()},
+            {"role": "system", "content": chat_prompts.build_system_prompt(known)},
             *history,
         ]
 
@@ -96,11 +148,15 @@ class ChatService:
             except ChatOutputError:
                 if attempt == 1:
                     raise
+
         reply = str(raw.get("reply") or "").strip()
         if not reply:
             reply = "Sorry, could you rephrase that?"
 
-        fields = self._merge_fields(client_fields, raw.get("fields") or {})
+        # Model deltas are coerced BEFORE merging: a delta that normalizes to
+        # '' (garbage date, etc.) keeps the known value instead of blanking it.
+        deltas = coerce_fields(raw.get("fields") or {})
+        fields = {name: deltas[name] or known[name] for name in known}
         complete, _ = TemplateParser.validate_fields(self._template_content(), fields)
         return {"reply": reply, "fields": fields, "complete": complete}
 
@@ -109,20 +165,6 @@ class ChatService:
         return TemplateParser.load_template(
             self.settings.templates_path / "Mutual-NDA.md"
         )
-
-    @staticmethod
-    def _merge_fields(client_fields: dict, model_fields: dict) -> dict:
-        """Merge model deltas over client values; always all 6 keys, stripped.
-
-        A non-empty model value overwrites (allows corrections); an empty or
-        missing model value keeps the client's known value (never blanks).
-        """
-        merged = {}
-        for name in chat_prompts.required_field_names():
-            current = str(client_fields.get(name) or "").strip()
-            incoming = str(model_fields.get(name) or "").strip()
-            merged[name] = incoming or current
-        return merged
 
     async def _call_llm(self, messages: list) -> dict:
         """THE network seam. Returns the parsed structured-output dict."""
@@ -151,15 +193,23 @@ class ChatService:
                 # other OpenRouter providers if it is unavailable.
                 extra_body={"provider": {"order": ["cerebras"], "allow_fallbacks": True}},
                 temperature=0.2,
-                max_tokens=1024,
+                # Budget for the reply PLUS a full strict-schema re-emission
+                # of all six fields (short, capped at MAX_FIELD_CHARS each).
+                max_tokens=4096,
                 timeout=30.0,
             )
         except litellm.exceptions.AuthenticationError as exc:
             # Key present but rejected by OpenRouter → configuration problem.
+            logger.warning("OpenRouter rejected the API key: %s", exc)
             raise ChatConfigError(
                 "AI chat is not configured correctly (OpenRouter rejected the API key)"
             ) from exc
         except Exception as exc:  # litellm.APIError, Timeout, RateLimit, ...
-            raise ChatUpstreamError(f"AI request failed: {exc}") from exc
+            # Full detail stays in the server log; the client gets a generic
+            # message so provider response bodies never leak to callers.
+            logger.warning("LLM request failed: %s", exc)
+            raise ChatUpstreamError("The AI provider could not complete the request") from exc
 
+        if not completion.choices:
+            raise ChatOutputError("AI returned no choices")
         return parse_llm_content(completion.choices[0].message.content)

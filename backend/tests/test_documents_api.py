@@ -1,13 +1,6 @@
 """Integration tests for the existing document API (regression coverage)."""
 
-NDA_FIELDS = {
-    "Purpose": "Evaluation of potential partnership and collaboration opportunities",
-    "Effective Date": "2024-01-15",
-    "MNDA Term": "2 years",
-    "Term of Confidentiality": "3 years from the date of disclosure",
-    "Governing Law": "California",
-    "Jurisdiction": "Northern District of California",
-}
+from backend.tests.conftest import NDA_FIELDS  # shared with test_chat_api
 
 
 class TestHealthAndInfo:

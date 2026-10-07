@@ -37,6 +37,9 @@ class Settings(BaseSettings):
     # (pydantic-settings never exports .env keys to os.environ, so LiteLLM's
     # own env lookup would not find it).
     OPENROUTER_API_KEY: str = ""
+    # Max chat requests per IP per minute (0 disables the limiter). Chat is
+    # public and every turn spends OpenRouter credit.
+    CHAT_RATE_LIMIT: int = 20
 
     class Config:
         # Anchor .env to the repo root (not CWD). Unrelated keys in the same

@@ -24,6 +24,11 @@ function chatInput(): HTMLInputElement {
   return screen.getByLabelText('Chat message') as HTMLInputElement;
 }
 
+async function awaitGreeting() {
+  // The input is gated on the greeting settling — tests must wait for it.
+  await waitFor(() => expect(screen.getByText('Welcome to the NDA chat!')).toBeTruthy());
+}
+
 async function typeAndSend(text: string) {
   fireEvent.change(chatInput(), { target: { value: text } });
   fireEvent.click(screen.getByRole('button', { name: 'Send' }));
@@ -54,6 +59,15 @@ describe('NDAChat', () => {
       expect(screen.getByText(/I'll help you put together a Mutual NDA/)).toBeTruthy(),
     );
     expect(screen.getByText('backend down')).toBeTruthy();
+    // Once the greeting settles (even in failure), the input unlocks.
+    await waitFor(() => expect(chatInput().disabled).toBe(false));
+  });
+
+  it('keeps the input disabled until the greeting resolves', () => {
+    mockedClient.getChatGreeting.mockReturnValue(new Promise(() => {}) as never);
+    render(<NDAChat template={TEMPLATE} />);
+    expect(chatInput().disabled).toBe(true);
+    expect(screen.getByRole('button', { name: 'Send' }).disabled).toBe(true);
   });
 
   it('sends a message, shows the reply, and updates the live preview', async () => {
@@ -64,7 +78,7 @@ describe('NDAChat', () => {
     });
 
     render(<NDAChat template={TEMPLATE} />);
-    await waitFor(() => expect(mockedClient.getChatGreeting).toHaveBeenCalled());
+    await awaitGreeting();
 
     await typeAndSend('We are evaluating a partnership with Acme.');
 
@@ -102,7 +116,7 @@ describe('NDAChat', () => {
     mockedClient.downloadPDF.mockResolvedValue(undefined);
 
     render(<NDAChat template={TEMPLATE} />);
-    await waitFor(() => expect(mockedClient.getChatGreeting).toHaveBeenCalled());
+    await awaitGreeting();
 
     await typeAndSend('That is everything.');
     await waitFor(() =>
@@ -132,7 +146,7 @@ describe('NDAChat', () => {
       });
 
     render(<NDAChat template={TEMPLATE} />);
-    await waitFor(() => expect(mockedClient.getChatGreeting).toHaveBeenCalled());
+    await awaitGreeting();
 
     await typeAndSend('My answer that will fail once.');
 

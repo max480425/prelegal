@@ -22,8 +22,8 @@ GREETING = (
 _FIELD_ORDER: List[str] = list(TemplateParser.PREDEFINED_FIELDS)
 
 
-def _field_line(name: str) -> str:
-    """Render one field's guidance for the system prompt / schema description."""
+def _field_parts(name: str) -> List[str]:
+    """Assemble one field's guidance fragments from its template metadata."""
     spec = TemplateParser.PREDEFINED_FIELDS[name]
     parts = [spec.get("description", f"Value for {name}")]
     if spec.get("placeholder"):
@@ -35,14 +35,29 @@ def _field_line(name: str) -> str:
         )
     if spec.get("type") == "date":
         parts.append("always formatted as YYYY-MM-DD")
-    return f"  {name} — " + "; ".join(parts)
+    return parts
 
 
-def build_system_prompt() -> str:
-    """System prompt instructing conversational field extraction."""
+def field_description(name: str) -> str:
+    """The guidance body for one field (shared by prompt lines and schema)."""
+    return "; ".join(_field_parts(name))
+
+
+def _field_line(name: str) -> str:
+    """Render one field's guidance for the system prompt."""
+    return f"  {name} — {field_description(name)}"
+
+
+def build_system_prompt(known_fields: Dict[str, str] | None = None) -> str:
+    """System prompt instructing conversational field extraction.
+
+    `known_fields` are the values already gathered (server-normalized);
+    telling the model what is already known stops it re-asking and lets it
+    confirm completion accurately.
+    """
     field_lines = "\n".join(_field_line(name) for name in _FIELD_ORDER)
     order = ", ".join(_FIELD_ORDER)
-    return (
+    prompt = (
         "You are a friendly legal assistant helping a user complete a Mutual "
         "Non-Disclosure Agreement (Mutual NDA).\n"
         "Collect these required fields (the exact keys of your `fields` "
@@ -59,6 +74,15 @@ def build_system_prompt() -> str:
         "- Keep replies to 1-3 sentences. You draft documents; do not give "
         "legal advice. Politely redirect unrelated requests back to the NDA."
     )
+    known = {k: v for k, v in (known_fields or {}).items() if v}
+    if known:
+        lines = "\n".join(f"  {name}: {value}" for name, value in known.items())
+        prompt += (
+            "\nKnown fields so far (already answered — do NOT re-ask these; "
+            "these are the values to confirm at the end):\n"
+            f"{lines}"
+        )
+    return prompt
 
 
 def build_output_schema() -> Dict:
@@ -69,7 +93,7 @@ def build_output_schema() -> Dict:
     for name in _FIELD_ORDER:
         properties[name] = {
             "type": "string",
-            "description": _field_line(name).split(" — ", 1)[1],
+            "description": field_description(name),
         }
     return {
         "type": "object",
