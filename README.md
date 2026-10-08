@@ -10,6 +10,8 @@ A platform for drafting common legal agreements
 
 Prelegal is a platform designed to help users draft common legal agreements quickly and easily. The platform provides templates and guidance for creating various types of legal documents.
 
+Documents are currently created through an **AI chat**: the assistant asks about the required fields conversationally, fills a live preview as you answer, and unlocks the PDF download once the document is complete (powered by LiteLLM via OpenRouter — see `backend/.env.example` for the required `OPENROUTER_API_KEY`; without it the app still runs and chat requests return 503).
+
 ## Quick start (Docker)
 
 The whole app (FastAPI backend + statically built Next.js frontend + SQLite) runs in one container, available at **http://localhost:8000**.
@@ -31,6 +33,8 @@ scripts\stop-windows.ps1
 ```
 
 The SQLite database is created from scratch each time the container starts.
+
+AI chat needs an `OPENROUTER_API_KEY` in a repo-root `.env` (compose passes it into the container; see `backend/.env.example`). The app works without it — chat turns return 503 until a key is provided.
 
 ## Development
 

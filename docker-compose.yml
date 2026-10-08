@@ -5,3 +5,9 @@ services:
     container_name: prelegal
     ports:
       - "8000:8000"
+    environment:
+      # Compose interpolates this from the repo-root .env (its default .env
+      # file); the container never has the file itself (.dockerignore).
+      # Empty default keeps `docker compose up` working without a key —
+      # chat then returns 503 with a clear message.
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}

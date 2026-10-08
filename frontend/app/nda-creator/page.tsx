@@ -1,6 +1,6 @@
 'use client';
 
-import { NDAForm } from '@/components/forms/NDAForm';
+import { NDAChat } from '@/components/nda/NDAChat';
 import { useEffect, useState } from 'react';
 
 const TEMPLATE_CONTENT = `# Standard Terms
@@ -39,11 +39,11 @@ export default function NDACreatorPage() {
           Create Mutual NDA
         </h1>
         <p className="text-lg text-gray-600">
-          Fill in the form below to generate your customized Mutual NDA document
+          Chat with the AI below to create your customized Mutual NDA — the preview updates live as you go
         </p>
       </div>
 
-      <NDAForm template={TEMPLATE_CONTENT} />
+      <NDAChat template={TEMPLATE_CONTENT} />
     </div>
   );
 }

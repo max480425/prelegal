@@ -6,6 +6,7 @@ from fastapi.staticfiles import StaticFiles
 
 from backend.api.routes import router
 from backend.api.auth_routes import router as auth_router
+from backend.api.chat_routes import router as chat_router
 from backend.utils.config import get_settings
 from backend.utils.db import init_db
 import logging
@@ -42,9 +43,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include routes
+# Include routes (before the static mount so /api/* always wins)
 app.include_router(router)
 app.include_router(auth_router)
+app.include_router(chat_router)
 
 # Serve the statically exported frontend (frontend/out) when it exists.
 # Mounted last so /api/* and /docs keep matching first; `html=True` resolves

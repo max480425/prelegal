@@ -33,10 +33,17 @@ class Settings(BaseSettings):
     JWT_SECRET: str = ""
     JWT_EXPIRE_MINUTES: int = 1440
     LOG_LEVEL: str = "INFO"
+    # Read from the repo-root .env; passed to litellm explicitly as api_key=
+    # (pydantic-settings never exports .env keys to os.environ, so LiteLLM's
+    # own env lookup would not find it).
+    OPENROUTER_API_KEY: str = ""
+    # Max chat requests per IP per minute (0 disables the limiter). Chat is
+    # public and every turn spends OpenRouter credit.
+    CHAT_RATE_LIMIT: int = 20
 
     class Config:
-        # Anchor .env to the repo root (not CWD) and ignore unrelated keys
-        # such as OPENROUTER_API_KEY, which lives in the same file.
+        # Anchor .env to the repo root (not CWD). Unrelated keys in the same
+        # file are ignored via extra="ignore"; OPENROUTER_API_KEY is a field.
         env_file = str(BASE_DIR / ".env")
         case_sensitive = True
         extra = "ignore"
